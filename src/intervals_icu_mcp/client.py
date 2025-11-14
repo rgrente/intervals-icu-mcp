@@ -668,6 +668,81 @@ class ICUClient:
         adapter = TypeAdapter(list[Folder])
         return adapter.validate_python(response.json())
 
+    async def create_folder(
+        self,
+        folder_data: dict[str, Any],
+        athlete_id: str | None = None,
+    ) -> Folder:
+        """Create a new workout folder or training plan.
+
+        Args:
+            folder_data: Folder/plan data matching CreateFolderDTO schema
+            athlete_id: Athlete ID (uses config default if not provided)
+
+        Returns:
+            Created Folder object
+        """
+        athlete_id = athlete_id or self.config.intervals_icu_athlete_id
+        response = await self._request("POST", f"/athlete/{athlete_id}/folders", json=folder_data)
+        return Folder(**response.json())
+
+    async def update_folder(
+        self,
+        folder_id: int,
+        folder_data: dict[str, Any],
+        athlete_id: str | None = None,
+    ) -> Folder:
+        """Update an existing workout folder or training plan.
+
+        Args:
+            folder_id: ID of the folder/plan to update
+            folder_data: Complete folder/plan data matching CreateFolderDTO schema
+            athlete_id: Athlete ID (uses config default if not provided)
+
+        Returns:
+            Updated Folder object
+        """
+        athlete_id = athlete_id or self.config.intervals_icu_athlete_id
+        response = await self._request(
+            "PUT", f"/athlete/{athlete_id}/folders/{folder_id}", json=folder_data
+        )
+        return Folder(**response.json())
+
+    async def delete_folder(
+        self,
+        folder_id: int,
+        athlete_id: str | None = None,
+    ) -> None:
+        """Delete a workout folder or training plan.
+
+        Args:
+            folder_id: ID of the folder/plan to delete
+            athlete_id: Athlete ID (uses config default if not provided)
+        """
+        athlete_id = athlete_id or self.config.intervals_icu_athlete_id
+        await self._request("DELETE", f"/athlete/{athlete_id}/folders/{folder_id}")
+
+    async def bulk_create_workouts(
+        self,
+        workouts_data: list[dict[str, Any]],
+        athlete_id: str | None = None,
+    ) -> list[Workout]:
+        """Create multiple workouts in a folder or plan.
+
+        Args:
+            workouts_data: List of workout data matching WorkoutEx schema
+            athlete_id: Athlete ID (uses config default if not provided)
+
+        Returns:
+            List of created Workout objects
+        """
+        athlete_id = athlete_id or self.config.intervals_icu_athlete_id
+        response = await self._request(
+            "POST", f"/athlete/{athlete_id}/workouts/bulk", json=workouts_data
+        )
+        adapter = TypeAdapter(list[Workout])
+        return adapter.validate_python(response.json())
+
     # ==================== Activity Analysis Endpoints ====================
 
     async def get_activity_intervals(

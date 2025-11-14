@@ -221,8 +221,11 @@ class Folder(BaseModel):
 
     id: int
     athlete_id: str | None = Field(None, alias="athlete_id")
+    type: str | None = None  # FOLDER or PLAN
     name: str | None = None
     description: str | None = None
+    children: list["Workout"] | None = None  # List of workouts in this folder/plan
+    visibility: str | None = None  # PRIVATE or PUBLIC
     num_workouts: int | None = Field(None, alias="num_workouts")
     start_date_local: str | None = Field(None, alias="start_date_local")
     duration_weeks: int | None = Field(None, alias="duration_weeks")

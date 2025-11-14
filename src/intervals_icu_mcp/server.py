@@ -67,7 +67,14 @@ from .tools.sport_settings import (
     update_sport_settings,
 )
 from .tools.wellness import get_wellness_data, get_wellness_for_date, update_wellness
-from .tools.workout_library import get_workout_library, get_workouts_in_folder
+from .tools.workout_library import (
+    add_workouts_to_plan,
+    create_training_plan,
+    delete_training_plan,
+    get_workout_library,
+    get_workouts_in_folder,
+    update_training_plan,
+)
 
 # Register activity tools
 mcp.tool()(get_recent_activities)
@@ -119,6 +126,10 @@ mcp.tool()(get_pace_curves)
 # Register workout library tools
 mcp.tool()(get_workout_library)
 mcp.tool()(get_workouts_in_folder)
+mcp.tool()(create_training_plan)
+mcp.tool()(update_training_plan)
+mcp.tool()(delete_training_plan)
+mcp.tool()(add_workouts_to_plan)
 
 # Register gear management tools
 mcp.tool()(get_gear_list)
