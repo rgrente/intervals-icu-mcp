@@ -74,6 +74,8 @@ async def get_workout_library(
                             workout_data["type"] = workout.type
                         if workout.moving_time:
                             workout_data["duration_seconds"] = workout.moving_time
+                        if workout.day is not None:
+                            workout_data["day"] = workout.day
                         if workout.icu_training_load:
                             workout_data["training_load"] = workout.icu_training_load
                         if workout.icu_intensity:
@@ -228,15 +230,84 @@ async def create_training_plan(
         "Start date in ISO format (YYYY-MM-DD) for training plans. If not specified for PLAN type, defaults to next Monday",
     ] = None,
     visibility: Annotated[str, "Visibility: 'PRIVATE' or 'PUBLIC'"] = "PRIVATE",
+    workouts: Annotated[
+        str | None,
+        "Optional JSON array of workout definitions. Each workout should have: name, description, type (activity type), moving_time (seconds), day (day number in plan), and optionally: indoor (bool), color, icu_training_load, workout_doc (structured workout)",
+    ] = None,
     ctx: Context | None = None,
 ) -> str:
-    """Create a new workout folder or training plan.
+    """Create a new workout folder or training plan with optional workouts.
 
     Creates a new folder to organize workouts or a complete training plan with schedule.
-    Training plans can have start dates and automatic rollout settings.
+    Training plans can have start dates and automatic rollout settings. Workouts can
+    optionally be added during plan creation.
 
     For training plans (type='PLAN'), if no start_date is provided, it will automatically
     be set to the next Monday. This ensures plans start at the beginning of a week.
+
+    IMPORTANT: Workout descriptions must follow Intervals.icu Markdown format:
+    - Section headers (Warmup/Main Set/Cooldown) on separate lines
+    - Steps begin with "- " followed by duration and intensity
+    - Duration: 5m, 30s, 1m30
+    - Intensity for cycling: % of FTP (e.g., 85%, 95-105%)
+    - Intensity for running/trail:
+      * IMPORTANT: Cannot mix pace and HR in the same workout. Choose one mode for entire session.
+      * For intensive flat intervals/VMA: Use PACE for entire workout (warmup, main set, cooldown)
+        - Warmup: "Press lap 15m 60-75% pace" (typical duration: 15m)
+        - Main Set: pace (e.g., 100-105% pace)
+        - Cooldown: pace (e.g., "10m 60-70% pace", typical duration: 10m)
+      * For all other workouts (easy runs, tempo, long runs, uphill/trail): Use HR for entire workout
+        - Warmup: "Press lap 15m Z1-Z2 HR" (typical duration: 15m)
+        - Main Set: HR zones (e.g., Z2 HR, Z3 HR, Z4 HR)
+        - Cooldown: HR zones (e.g., "10m Z1-Z2 HR", typical duration: 10m)
+      * NEVER use ramp for warmup or cooldown.
+    - Zones: Z2, Z3 HR, Z2 Pace
+    - Optional: cadence (90rpm), ramp (ramp 60-80%)
+    - Repeats: use "Nx" on its own line before the block
+    - Leave blank lines between sections
+
+    Example cycling workout:
+    Warmup
+    - 10m ramp 55-75% FTP 90rpm
+
+    Main Set 3x
+    - 5m 90% FTP 95rpm
+    - 3m 65% FTP 85rpm
+
+    Cooldown
+    - 10m ramp 75-55% FTP 85rpm
+
+    Example running easy run (HR-based):
+    Warmup
+    - Press lap 15m Z1-Z2 HR
+
+    Main Set
+    - 30m Z2 HR
+
+    Cooldown
+    - 10m Z1-Z2 HR
+
+    Example running VMA intervals on flat (pace for entire workout):
+    Warmup
+    - Press lap 15m 60-75% pace
+
+    Main Set 6x
+    - 3m 100-105% pace
+    - 2m 70% pace
+
+    Cooldown
+    - 10m 60-70% pace
+
+    Example trail/uphill workout (HR-based):
+    Warmup
+    - Press lap 15m Z1-Z2 HR
+
+    Main Set 5x
+    - 5m Z4 HR
+    - 3m Z2 HR
+
+    Cooldown
+    - 10m Z1-Z2 HR
 
     Args:
         name: Name of the plan/folder
@@ -244,9 +315,25 @@ async def create_training_plan(
         description: Optional description
         start_date: Start date for training plans (YYYY-MM-DD format). Auto-set to next Monday if not provided for PLAN type
         visibility: 'PRIVATE' (default) or 'PUBLIC'
+        workouts: Optional JSON string array of workout definitions
 
     Returns:
-        JSON string with created plan/folder details
+        JSON string with created plan/folder details and workouts if provided
+
+    Example workouts JSON:
+    [
+      {
+        "name": "Easy Run",
+        "description": "Warmup\\n- Press lap 15m Z1-Z2 HR\\n\\nMain Set\\n- 30m Z2 HR\\n\\nCooldown\\n- 10m Z1-Z2 HR",
+        "type": "Run",
+        "moving_time": 1800,
+        "day": 1,
+        "indoor": false,
+        "color": "blue",
+        "icu_training_load": 30,
+        "targets": ["HR"]
+      }
+    ]
     """
     assert ctx is not None
     config: ICUConfig = ctx.get_state("config")
@@ -264,6 +351,60 @@ async def create_training_plan(
             "visibility must be either 'PRIVATE' or 'PUBLIC'",
             error_type="validation_error",
         )
+
+    # Parse and validate workouts if provided
+    import json
+
+    workouts_list: list[dict[str, Any]] | None = None
+    if workouts:
+        try:
+            workouts_list = json.loads(workouts)
+        except json.JSONDecodeError as e:
+            return ResponseBuilder.build_error_response(
+                f"Invalid JSON format: {str(e)}",
+                error_type="validation_error",
+            )
+
+        if not isinstance(workouts_list, list):
+            return ResponseBuilder.build_error_response(
+                "workouts must be a JSON array",
+                error_type="validation_error",
+            )
+
+        if len(workouts_list) == 0:
+            return ResponseBuilder.build_error_response(
+                "workouts array cannot be empty",
+                error_type="validation_error",
+            )
+
+        # Validate each workout
+        for i, workout in enumerate(workouts_list):
+            if not isinstance(workout, dict):  # type: ignore[reportUnnecessaryIsInstance]
+                return ResponseBuilder.build_error_response(
+                    f"Workout at index {i} must be an object",
+                    error_type="validation_error",
+                )
+
+            # Required fields
+            required_fields = ["name", "type", "moving_time", "day"]
+            for field in required_fields:
+                if field not in workout:
+                    return ResponseBuilder.build_error_response(
+                        f"Workout at index {i} missing required field: {field}",
+                        error_type="validation_error",
+                    )
+
+            # Set defaults for optional fields
+            if "indoor" not in workout:
+                workout["indoor"] = False
+            if "attachments" not in workout:
+                workout["attachments"] = []
+            if "joules" not in workout:
+                workout["joules"] = 0
+            if "joules_above_ftp" not in workout:
+                workout["joules_above_ftp"] = 0
+            if "sub_type" not in workout:
+                workout["sub_type"] = "NONE"
 
     # Auto-set start_date to next Monday if not provided for PLAN type
     from datetime import datetime, timedelta
@@ -311,8 +452,50 @@ async def create_training_plan(
             if folder.num_workouts:
                 result_data["num_workouts"] = folder.num_workouts
 
+            # Create workouts if provided
+            created_workouts = None
+            if workouts_list:
+                # Add folder_id to each workout
+                for workout in workouts_list:
+                    workout["folder_id"] = folder.id
+
+                # Create workouts
+                created_workouts = await client.bulk_create_workouts(workouts_list)
+
+                # Add workouts to response
+                workouts_data: list[dict[str, Any]] = []
+                for workout in created_workouts:
+                    workout_item: dict[str, Any] = {
+                        "id": workout.id,
+                        "name": workout.name,
+                        "type": workout.type,
+                    }
+
+                    if workout.description:
+                        workout_item["description"] = workout.description
+                    if workout.moving_time:
+                        workout_item["duration_seconds"] = workout.moving_time
+                    if workout.icu_training_load:
+                        workout_item["training_load"] = workout.icu_training_load
+                    if workout.folder_id:
+                        workout_item["folder_id"] = workout.folder_id
+
+                    workouts_data.append(workout_item)
+
+                # Calculate summary
+                total_duration = sum(w.moving_time or 0 for w in created_workouts)
+                total_load = sum(w.icu_training_load or 0 for w in created_workouts)
+
+                result_data["workouts"] = workouts_data
+                result_data["num_workouts"] = len(created_workouts)
+                result_data["summary"] = {
+                    "count": len(created_workouts),
+                    "total_duration_seconds": total_duration,
+                    "total_training_load": total_load,
+                }
+
             # Add analysis for training plans
-            analysis_data = None
+            analysis_data: dict[str, Any]
             if plan_type == "PLAN":
                 analysis_data = {
                     "type": "training_plan",
@@ -330,6 +513,14 @@ async def create_training_plan(
                     "type": "workout_folder",
                     "message": f"Workout folder '{name}' created successfully",
                 }
+
+            # Add workout analysis if workouts were created
+            if created_workouts:
+                total_duration = sum(w.moving_time or 0 for w in created_workouts)
+                total_load = sum(w.icu_training_load or 0 for w in created_workouts)
+                analysis_data["workouts_created"] = len(created_workouts)
+                analysis_data["total_duration_seconds"] = total_duration
+                analysis_data["total_training_load"] = total_load
 
             return ResponseBuilder.build_response(
                 data=result_data,
@@ -353,9 +544,9 @@ async def add_workouts_to_plan(
     ],
     ctx: Context | None = None,
 ) -> str:
-    """Add multiple workouts to a training plan or folder.
+    """Add multiple workouts to an existing training plan or folder.
 
-    Allows bulk creation of workouts in a plan. Each workout can be a simple description
+    Allows bulk creation of workouts in an existing plan. Each workout can be a simple description
     or a structured workout with specific intensity targets (power zones, HR zones, pace zones).
 
     IMPORTANT: Workout descriptions must follow Intervals.icu Markdown format:
@@ -422,16 +613,6 @@ async def add_workouts_to_plan(
     Cooldown
     - 10m Z1-Z2 HR
 
-    The workout_doc field allows creating structured workouts with steps. Example:
-    {
-      "duration": 3600,
-      "steps": [
-        {"duration": 600, "power": {"value": 1, "units": "power_zone"}},
-        {"duration": 1200, "power": {"value": 4, "units": "power_zone"}},
-        {"duration": 600, "power": {"value": 1, "units": "power_zone"}}
-      ]
-    }
-
     Args:
         folder_id: ID of the folder/plan to add workouts to
         workouts: JSON string array of workout definitions
@@ -443,7 +624,7 @@ async def add_workouts_to_plan(
     [
       {
         "name": "Easy Run",
-        "description": "30min Z2 HR",
+        "description": "Warmup\\n- Press lap 15m Z1-Z2 HR\\n\\nMain Set\\n- 30m Z2 HR\\n\\nCooldown\\n- 10m Z1-Z2 HR",
         "type": "Run",
         "moving_time": 1800,
         "day": 1,
@@ -451,17 +632,6 @@ async def add_workouts_to_plan(
         "color": "blue",
         "icu_training_load": 30,
         "targets": ["HR"]
-      },
-      {
-        "name": "Intervals",
-        "description": "Threshold intervals",
-        "type": "Ride",
-        "moving_time": 3600,
-        "day": 3,
-        "indoor": true,
-        "color": "red",
-        "icu_training_load": 85,
-        "targets": ["POWER"]
       }
     ]
     """
@@ -470,18 +640,21 @@ async def add_workouts_to_plan(
 
     # Parse workouts JSON
     import json
+    from typing import cast
 
+    workouts_list: list[dict[str, Any]]
     try:
-        workouts_list: Any = json.loads(workouts)
+        parsed: Any = json.loads(workouts)
+        if not isinstance(parsed, list):
+            return ResponseBuilder.build_error_response(
+                "workouts must be a JSON array",
+                error_type="validation_error",
+            )
+        # Cast to proper type after validation
+        workouts_list = cast(list[dict[str, Any]], parsed)
     except json.JSONDecodeError as e:
         return ResponseBuilder.build_error_response(
             f"Invalid JSON format: {str(e)}",
-            error_type="validation_error",
-        )
-
-    if not isinstance(workouts_list, list):
-        return ResponseBuilder.build_error_response(
-            "workouts must be a JSON array",
             error_type="validation_error",
         )
 
@@ -493,7 +666,7 @@ async def add_workouts_to_plan(
 
     # Validate and enrich each workout with folder_id
     for i, workout in enumerate(workouts_list):
-        if not isinstance(workout, dict):
+        if not isinstance(workout, dict):  # type: ignore[reportUnnecessaryIsInstance]
             return ResponseBuilder.build_error_response(
                 f"Workout at index {i} must be an object",
                 error_type="validation_error",
@@ -571,146 +744,6 @@ async def add_workouts_to_plan(
                 data=result_data,
                 analysis=analysis_data,
                 query_type="add_workouts_to_plan",
-            )
-
-    except ICUAPIError as e:
-        return ResponseBuilder.build_error_response(e.message, error_type="api_error")
-    except Exception as e:
-        return ResponseBuilder.build_error_response(
-            f"Unexpected error: {str(e)}", error_type="internal_error"
-        )
-
-
-async def update_training_plan(
-    folder_id: Annotated[int, "ID of the folder/plan to update"],
-    name: Annotated[str | None, "New name of the training plan"] = None,
-    description: Annotated[str | None, "New description of the plan"] = None,
-    start_date: Annotated[str | None, "New start date in ISO format (YYYY-MM-DD)"] = None,
-    visibility: Annotated[str | None, "New visibility: 'PRIVATE' or 'PUBLIC'"] = None,
-    ctx: Context | None = None,
-) -> str:
-    """Update an existing workout folder or training plan.
-
-    Updates the properties of a training plan or folder. You must provide the folder_id
-    and at least one field to update. The API requires sending the complete object,
-    so this function will first fetch the current folder data, apply your updates,
-    and send the complete updated object.
-
-    IMPORTANT: For workout descriptions, follow Intervals.icu Markdown format:
-    - Section headers (Warmup/Main Set/Cooldown) on separate lines
-    - Steps begin with "- " followed by duration and intensity
-    - Duration: 5m, 30s, 1m30
-    - Intensity for cycling: % of FTP (e.g., 85%, 95-105%)
-    - Intensity for running/trail:
-      * IMPORTANT: Cannot mix pace and HR in the same workout. Choose one mode for entire session.
-      * For intensive flat intervals/VMA: Use PACE for entire workout (warmup, main set, cooldown)
-        - Warmup: "Press lap 15m 60-75% pace" (typical duration: 15m)
-        - Main Set: pace (e.g., 100-105% pace)
-        - Cooldown: pace (e.g., "10m 60-70% pace", typical duration: 10m)
-      * For all other workouts (easy runs, tempo, long runs, uphill/trail): Use HR for entire workout
-        - Warmup: "Press lap 15m Z1-Z2 HR" (typical duration: 15m)
-        - Main Set: HR zones (e.g., Z2 HR, Z3 HR, Z4 HR)
-        - Cooldown: HR zones (e.g., "10m Z1-Z2 HR", typical duration: 10m)
-      * NEVER use ramp for warmup or cooldown.
-    - Zones: Z2, Z3 HR, Z2 Pace
-    - Optional: cadence (90rpm), ramp (ramp 60-80%)
-    - Repeats: use "Nx" on its own line before the block
-    - Leave blank lines between sections
-
-    Args:
-        folder_id: ID of the folder/plan to update
-        name: New name (optional)
-        description: New description (optional)
-        start_date: New start date in YYYY-MM-DD format (optional)
-        visibility: New visibility setting - 'PRIVATE' or 'PUBLIC' (optional)
-
-    Returns:
-        JSON string with updated plan/folder details
-    """
-    assert ctx is not None
-    config: ICUConfig = ctx.get_state("config")
-
-    # Validate visibility if provided
-    if visibility and visibility not in ["PRIVATE", "PUBLIC"]:
-        return ResponseBuilder.build_error_response(
-            "visibility must be either 'PRIVATE' or 'PUBLIC'",
-            error_type="validation_error",
-        )
-
-    try:
-        async with ICUClient(config) as client:
-            # First, fetch the current folder data
-            folders = await client.get_workout_folders()
-            current_folder = None
-            for folder in folders:
-                if folder.id == folder_id:
-                    current_folder = folder
-                    break
-
-            if not current_folder:
-                return ResponseBuilder.build_error_response(
-                    f"Folder/plan with ID {folder_id} not found",
-                    error_type="not_found",
-                )
-
-            # Build the complete folder data with updates
-            folder_data: dict[str, Any] = {
-                "name": name if name is not None else current_folder.name,
-                "type": current_folder.type or "FOLDER",
-                "visibility": visibility
-                if visibility is not None
-                else (current_folder.visibility or "PRIVATE"),
-            }
-
-            if description is not None:
-                folder_data["description"] = description
-            elif current_folder.description:
-                folder_data["description"] = current_folder.description
-
-            if start_date is not None:
-                folder_data["start_date_local"] = start_date
-            elif current_folder.start_date_local:
-                folder_data["start_date_local"] = current_folder.start_date_local
-
-            # Update the folder
-            updated_folder = await client.update_folder(folder_id, folder_data)
-
-            # Build response data
-            result_data: dict[str, Any] = {
-                "id": updated_folder.id,
-                "name": updated_folder.name,
-                "type": updated_folder.type,
-                "visibility": updated_folder.visibility,
-            }
-
-            if updated_folder.description:
-                result_data["description"] = updated_folder.description
-            if updated_folder.start_date_local:
-                result_data["start_date"] = updated_folder.start_date_local
-            if updated_folder.num_workouts:
-                result_data["num_workouts"] = updated_folder.num_workouts
-
-            # Add analysis
-            updated_fields = []
-            if name is not None:
-                updated_fields.append("name")
-            if description is not None:
-                updated_fields.append("description")
-            if start_date is not None:
-                updated_fields.append("start_date")
-            if visibility is not None:
-                updated_fields.append("visibility")
-
-            analysis_data = {
-                "message": "Training plan/folder updated successfully",
-                "updated_fields": updated_fields,
-                "folder_id": folder_id,
-            }
-
-            return ResponseBuilder.build_response(
-                data=result_data,
-                analysis=analysis_data,
-                query_type="update_plan",
             )
 
     except ICUAPIError as e:

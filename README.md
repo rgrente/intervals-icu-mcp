@@ -8,7 +8,7 @@ A Model Context Protocol (MCP) server for Intervals.icu integration. Access your
 
 ## Overview
 
-This MCP server provides 48 tools to interact with your Intervals.icu account, organized into 9 categories:
+This MCP server provides 51 tools to interact with your Intervals.icu account, organized into 9 categories:
 
 - Activities (10 tools) - Query, search, update, delete, and download activities
 - Activity Analysis (8 tools) - Deep dive into streams, intervals, best efforts, and histograms
@@ -16,7 +16,7 @@ This MCP server provides 48 tools to interact with your Intervals.icu account, o
 - Wellness (3 tools) - Track and update recovery, HRV, sleep, and health metrics
 - Events/Calendar (9 tools) - Manage planned workouts, races, notes with bulk operations
 - Performance/Curves (3 tools) - Analyze power, heart rate, and pace curves
-- Workout Library (2 tools) - Browse and explore workout templates and plans
+- Workout Library (5 tools) - Browse, create, and manage workout templates and training plans
 - Gear Management (6 tools) - Track equipment and maintenance reminders
 - Sport Settings (5 tools) - Configure FTP, FTHR, pace thresholds, and zones
 
@@ -223,11 +223,14 @@ _Note: The athlete profile resource (`intervals-icu://athlete/profile`) automati
 "Analyze my running pace curve"
 ```
 
-### Workout Library
+### Workout Library & Training Plans
 
 ```
 "Show me my workout library"
 "What workouts are in my threshold folder?"
+"Create a 12-week marathon training plan"
+"Add interval workouts to my cycling plan"
+"Delete my old training plan"
 ```
 
 ### Gear Management
@@ -315,12 +318,15 @@ _Note: The athlete profile resource (`intervals-icu://athlete/profile`) automati
 | `get-hr-curves`    | Analyze heart rate curves with HR zones                  |
 | `get-pace-curves`  | Analyze running/swimming pace curves with optional GAP   |
 
-### Workout Library (2 tools)
+### Workout Library (5 tools)
 
-| Tool                     | Description                               |
-| ------------------------ | ----------------------------------------- |
-| `get-workout-library`    | Browse workout folders and training plans |
-| `get-workouts-in-folder` | View all workouts in a specific folder    |
+| Tool                     | Description                                         |
+| ------------------------ | --------------------------------------------------- |
+| `get-workout-library`    | Browse workout folders and training plans           |
+| `get-workouts-in-folder` | View all workouts in a specific folder              |
+| `create-training-plan`   | Create training plans with optional workouts        |
+| `add-workouts-to-plan`   | Add multiple workouts to an existing plan           |
+| `delete-training-plan`   | Delete a training plan and all its workouts         |
 
 ### Gear Management (6 tools)
 
@@ -363,6 +369,259 @@ Prompt templates for common queries (accessible via prompt suggestions in Claude
 | `recovery-check`          | Recovery assessment with wellness trends and training load               |
 | `training-plan-review`    | Weekly training plan evaluation with workout library                     |
 | `plan-training-week`      | AI-assisted weekly training plan creation based on current fitness       |
+
+## Training Plans - Complete Guide
+
+### Creating Training Plans
+
+You can create training plans with or without workouts in a single operation.
+
+#### Basic Training Plan
+
+```python
+create_training_plan(
+    name="Marathon Training Plan",
+    plan_type="PLAN",
+    description="12-week marathon training plan",
+    start_date="2024-01-01",
+    visibility="PRIVATE"
+)
+```
+
+**Important**: If you don't specify a `start_date` for a plan (`plan_type="PLAN"`), it will automatically be set to the next Monday to ensure plans start at the beginning of a week.
+
+#### Workout Folder
+
+For organizing workouts without a schedule:
+
+```python
+create_training_plan(
+    name="My Workouts",
+    plan_type="FOLDER",
+    visibility="PRIVATE"
+)
+```
+
+### Workout Description Format
+
+⚠️ **CRITICAL**: Workout descriptions must follow the Intervals.icu Markdown format for proper interpretation on your device.
+
+#### Format Rules
+
+1. **Section headers** (Warmup/Main Set/Cooldown) on separate lines
+2. **Steps** begin with `- `, followed by:
+   - Duration (e.g., `5m`, `30s`, `1m30`)
+   - Intensity:
+     - **Cycling**: % of FTP (e.g., `85%`, `95-105%`)
+     - **Running/Trail**:
+       - ⚠️ **IMPORTANT**: Cannot mix pace and HR in the same workout. Choose one mode for the entire session.
+       - **For intensive flat intervals/VMA**: Use PACE for entire workout (warmup, main set, cooldown)
+         - Warmup: `Press lap 15m 60-75% pace`
+         - Main Set: pace (e.g., `100-105% pace`)
+         - Cooldown: pace (e.g., `10m 60-70% pace`)
+       - **For all other workouts** (easy runs, tempo, long runs, uphill/trail): Use HR for entire workout
+         - Warmup: `Press lap 15m Z1-Z2 HR`
+         - Main Set: HR zones (e.g., `Z2 HR`, `Z3 HR`, `Z4 HR`)
+         - Cooldown: HR zones (e.g., `10m Z1-Z2 HR`)
+       - **NEVER use ramp for warmup or cooldown in running/trail**
+   - Optional: cadence (e.g., `90rpm`)
+   - Optional: ramp (e.g., `ramp 60-80%`)
+3. **Repeats**: use `Nx` on its own line before the block
+4. **Leave blank lines** between sections
+
+#### Example Workouts
+
+**Cycling:**
+```
+Warmup
+- 10m ramp 55-75% FTP 90rpm
+
+Main Set 3x
+- 5m 90% FTP 95rpm
+- 3m 65% FTP 85rpm
+
+Cooldown
+- 10m ramp 75-55% FTP 85rpm
+```
+
+**Running - Easy Run (HR-based):**
+```
+Warmup
+- Press lap 15m Z1-Z2 HR
+
+Main Set
+- 30m Z2 HR
+
+Cooldown
+- 10m Z1-Z2 HR
+```
+
+**Running - VMA Intervals on Flat (pace for entire workout):**
+```
+Warmup
+- Press lap 15m 60-75% pace
+
+Main Set 6x
+- 3m 100-105% pace
+- 2m 70% pace
+
+Cooldown
+- 10m 60-70% pace
+```
+
+**Running - Trail/Uphill (HR-based):**
+```
+Warmup
+- Press lap 15m Z1-Z2 HR
+
+Main Set 5x
+- 5m Z4 HR
+- 3m Z2 HR
+
+Cooldown
+- 10m Z1-Z2 HR
+```
+
+### Creating Plans with Workouts
+
+You can create a plan and add workouts in one operation:
+
+```python
+create_training_plan(
+    name="Weekly Running Plan",
+    plan_type="PLAN",
+    description="Complete weekly running plan",
+    start_date="2024-01-01",
+    visibility="PRIVATE",
+    workouts='''[
+        {
+            "name": "Recovery Run",
+            "description": "Main Set\\n- 30m Z1-Z2 HR",
+            "type": "Run",
+            "moving_time": 1800,
+            "day": 1,
+            "icu_training_load": 25,
+            "targets": ["HR"]
+        },
+        {
+            "name": "VMA Intervals",
+            "description": "Warmup\\n- Press lap 15m 60-75% pace\\n\\nMain Set 6x\\n- 3m 100-105% pace\\n- 2m 70% pace\\n\\nCooldown\\n- 10m 60-70% pace",
+            "type": "Run",
+            "moving_time": 3900,
+            "day": 2,
+            "icu_training_load": 65,
+            "targets": ["PACE"]
+        },
+        {
+            "name": "Long Run",
+            "description": "Warmup\\n- Press lap 15m Z1-Z2 HR\\n\\nMain Set\\n- 90m Z2 HR\\n\\nCooldown\\n- 10m Z1-Z2 HR",
+            "type": "Run",
+            "moving_time": 7500,
+            "day": 7,
+            "icu_training_load": 95,
+            "targets": ["HR"]
+        }
+    ]'''
+)
+```
+
+### Adding Workouts to Existing Plans
+
+Use `add_workouts_to_plan` to add workouts to an already created plan:
+
+```python
+add_workouts_to_plan(
+    folder_id=12345,
+    workouts='''[
+        {
+            "name": "Threshold Intervals",
+            "description": "Warmup\\n- 10m ramp 55-75% FTP 90rpm\\n\\nMain Set 4x\\n- 8m 95-105% FTP 95rpm\\n- 2m 55% FTP 85rpm\\n\\nCooldown\\n- 10m ramp 75-55% FTP 85rpm",
+            "type": "Ride",
+            "moving_time": 3600,
+            "day": 3,
+            "indoor": true,
+            "color": "red",
+            "icu_training_load": 85,
+            "targets": ["POWER"]
+        }
+    ]'''
+)
+```
+
+### Workout Fields
+
+**Required Fields:**
+- `name`: Workout name
+- `type`: Activity type ("Run", "Ride", "Swim", etc.)
+- `moving_time`: Duration in seconds
+- `day`: Day number in the plan (starts at 1)
+
+**Optional Fields:**
+- `description`: Workout description in Intervals.icu Markdown format
+- `indoor`: true/false (default: false)
+- `color`: Display color ("blue", "green", "red", etc.)
+- `icu_training_load`: Estimated training load
+- `targets`: Array of targets - `["HR"]`, `["POWER"]`, `["PACE"]`, or `["AUTO"]`
+- `sub_type`: "NONE", "WARMUP", "COOLDOWN", "RACE", "COMMUTE"
+
+### Using AI to Generate Workouts
+
+You can use an AI assistant (like Claude) to generate workout descriptions in the correct Intervals.icu Markdown format.
+
+**System Prompt for AI:**
+
+```
+You are a workout generator that outputs correctly formatted Intervals.icu Markdown.
+
+Format rules:
+1. Section headers like Warmup/Main Set/Cooldown on a separate line
+2. Steps begin with `- `, followed by:
+   • Duration (e.g., `5m`, `30s`, `1m30`)
+   • Target intensity:
+     – For cycling: % of FTP (e.g., `85%`, `95-105%`)
+     – For running/trail: HR zones by default (e.g., `Z2 HR`, `Z3 HR`)
+       ONLY use pace for intensive flat intervals/VMA (e.g., `100-105% pace`)
+   • Optional cadence (e.g., `90rpm`)
+   • Optional ramp (e.g., `ramp 60-80%`)
+3. Repeats: use `Nx` on its own line, preceding the block
+4. Leave blank lines between sections and repeats
+5. Running/Trail specificity:
+   - IMPORTANT: Cannot mix pace and HR in the same workout
+   - For intensive flat intervals/VMA: Use PACE for entire workout
+   - For all other workouts: Use HR for entire workout
+   - NEVER use ramp for warmup or cooldown
+
+When I give you a workout description in plain English, respond ONLY with the correctly formatted Intervals.icu Markdown.
+```
+
+**Example Usage:**
+
+User: "Create a 60-minute cycling threshold intervals workout with 10 min warmup ramping from 55% to 75% FTP, 4 intervals of 8 minutes at 95-105% FTP with 2 minutes recovery at 55% FTP, and 10 min cooldown ramping from 75% to 55% FTP"
+
+AI Response:
+```
+Warmup
+- 10m ramp 55-75% FTP 90rpm
+
+Main Set 4x
+- 8m 95-105% FTP 95rpm
+- 2m 55% FTP 85rpm
+
+Cooldown
+- 10m ramp 75-55% FTP 85rpm
+```
+
+Then use this description in your workout JSON with proper escaping (`\\n` for newlines).
+
+### Complete Workflow
+
+1. Describe your desired workout in natural language to an AI
+2. AI generates the correctly formatted Intervals.icu Markdown
+3. Copy the Markdown into the `description` field (with `\\n` for line breaks)
+4. Complete the other required fields (name, type, moving_time, day)
+5. Call `create_training_plan` or `add_workouts_to_plan` with the complete workout JSON
+
+This allows you to rapidly generate complex, properly formatted training plans!
 
 ## License
 

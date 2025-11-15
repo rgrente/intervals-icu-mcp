@@ -9,7 +9,6 @@ from intervals_icu_mcp.tools.workout_library import (
     add_workouts_to_plan,
     create_training_plan,
     delete_training_plan,
-    update_training_plan,
 )
 
 
@@ -339,95 +338,6 @@ class TestAddWorkoutsToPlan:
         assert "error" in response
         assert "validation_error" in response["error"]["type"]
         assert "missing required field: day" in response["error"]["message"]
-
-
-class TestUpdateTrainingPlan:
-    """Tests for update_training_plan tool."""
-
-    async def test_update_training_plan_success(
-        self,
-        mock_config,
-        respx_mock,
-    ):
-        """Test successful training plan update."""
-        # Create mock context with config
-        mock_ctx = MagicMock()
-        mock_ctx.get_state.return_value = mock_config
-
-        # Mock existing folder data
-        mock_folders = [
-            {
-                "id": 12345,
-                "athlete_id": "i123456",
-                "type": "PLAN",
-                "name": "Old Name",
-                "description": "Old description",
-                "visibility": "PRIVATE",
-                "start_date_local": "2024-01-01",
-                "num_workouts": 5,
-            }
-        ]
-
-        # Mock updated folder data
-        mock_updated_folder = {
-            "id": 12345,
-            "athlete_id": "i123456",
-            "type": "PLAN",
-            "name": "New Name",
-            "description": "Old description",
-            "visibility": "PRIVATE",
-            "start_date_local": "2024-01-01",
-            "num_workouts": 5,
-        }
-
-        # Mock the API endpoints
-        respx_mock.get("/athlete/i123456/folders").mock(
-            return_value=Response(200, json=mock_folders)
-        )
-        respx_mock.put("/athlete/i123456/folders/12345").mock(
-            return_value=Response(200, json=mock_updated_folder)
-        )
-
-        result = await update_training_plan(
-            folder_id=12345,
-            name="New Name",
-            ctx=mock_ctx,
-        )
-
-        # Check for JSON response with expected fields
-        response = json.loads(result)
-        assert "data" in response
-        assert response["data"]["id"] == 12345
-        assert response["data"]["name"] == "New Name"
-
-        # Check analysis section
-        assert "analysis" in response
-        assert "updated_fields" in response["analysis"]
-        assert "name" in response["analysis"]["updated_fields"]
-
-    async def test_update_training_plan_not_found(
-        self,
-        mock_config,
-        respx_mock,
-    ):
-        """Test error handling when folder not found."""
-        # Create mock context with config
-        mock_ctx = MagicMock()
-        mock_ctx.get_state.return_value = mock_config
-
-        # Mock empty folders list
-        respx_mock.get("/athlete/i123456/folders").mock(return_value=Response(200, json=[]))
-
-        result = await update_training_plan(
-            folder_id=99999,
-            name="New Name",
-            ctx=mock_ctx,
-        )
-
-        # Check for error response
-        response = json.loads(result)
-        assert "error" in response
-        assert "not_found" in response["error"]["type"]
 
 
 class TestDeleteTrainingPlan:

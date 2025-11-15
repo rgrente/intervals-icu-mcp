@@ -205,6 +205,7 @@ class Workout(BaseModel):
     folder_id: int | None = Field(None, alias="folder_id")
     moving_time: int | None = Field(None, alias="moving_time")
     distance: float | None = None
+    day: int | None = None  # Day number in the training plan
     icu_training_load: int | None = Field(None, alias="icu_training_load")
     icu_intensity: float | None = Field(None, alias="icu_intensity")
     joules: int | None = None
