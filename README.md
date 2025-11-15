@@ -5,6 +5,7 @@
 A Model Context Protocol (MCP) server for Intervals.icu integration. Access your training data, wellness metrics, and performance analysis through Claude and other LLMs.
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Docker](https://img.shields.io/badge/docker-available-blue.svg)](https://github.com/rgrente/intervals-icu-mcp/pkgs/container/intervals-icu-mcp)
 
 ## Overview
 
