@@ -62,7 +62,8 @@ async def get_calendar_events(
             # Group events by date
             events_by_date: dict[str, list[dict[str, Any]]] = {}
             for event in events:
-                date = event.start_date_local
+                # Extract date part only (handle both "YYYY-MM-DD" and "YYYY-MM-DDTHH:MM:SS")
+                date = event.start_date_local.split("T")[0]
                 if date not in events_by_date:
                     events_by_date[date] = []
 
@@ -189,7 +190,9 @@ async def get_upcoming_workouts(
 
             workouts_data: list[dict[str, Any]] = []
             for workout in workouts:
-                date_obj = datetime.strptime(workout.start_date_local, "%Y-%m-%d").date()
+                # Extract date part only (handle both "YYYY-MM-DD" and "YYYY-MM-DDTHH:MM:SS")
+                date = workout.start_date_local.split("T")[0]
+                date_obj = datetime.strptime(date, "%Y-%m-%d").date()
                 today = datetime.now().date()
 
                 if date_obj == today:
@@ -201,7 +204,7 @@ async def get_upcoming_workouts(
                     relative_timing = f"in_{days_until}_days"
 
                 workout_item: dict[str, Any] = {
-                    "date": workout.start_date_local,
+                    "date": date,
                     "relative_timing": relative_timing,
                     "name": workout.name or "Workout",
                 }
@@ -272,9 +275,12 @@ async def get_event(
         async with ICUClient(config) as client:
             event = await client.get_event(event_id)
 
+            # Extract date part only (handle both "YYYY-MM-DD" and "YYYY-MM-DDTHH:MM:SS")
+            date = event.start_date_local.split("T")[0]
+
             event_data: dict[str, Any] = {
                 "id": event.id,
-                "date": event.start_date_local,
+                "date": date,
                 "name": event.name or event.category or "Event",
                 "category": event.category,
             }
